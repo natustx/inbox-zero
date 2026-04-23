@@ -11,6 +11,10 @@ type MessagingRouteLike = {
 };
 
 type MessagingRoutePurposeLike = Pick<MessagingRouteLike, "purpose">;
+type MessagingRouteTargetLike = Pick<
+  MessagingRouteLike,
+  "targetType" | "targetId"
+>;
 
 export type MessagingRouteSummary = {
   enabled: boolean;
@@ -21,6 +25,7 @@ export type MessagingRouteSummary = {
 
 export type MessagingChannelDestinations = {
   ruleNotifications: MessagingRouteSummary;
+  scheduledCheckIns: MessagingRouteSummary;
   meetingBriefs: MessagingRouteSummary;
   documentFilings: MessagingRouteSummary;
   digests: MessagingRouteSummary;
@@ -76,6 +81,27 @@ export function getMessagingRouteWhere(
   };
 }
 
+export function getMessagingChannelTargetRouteWhere(
+  targetId: string,
+): Prisma.MessagingRouteWhereInput {
+  return {
+    targetType: MessagingRouteTargetType.CHANNEL,
+    targetId,
+  };
+}
+
+export function hasMessagingChannelTargetRoute(
+  routes: MessagingRouteTargetLike[] | null | undefined,
+  targetId: string,
+) {
+  if (!routes) return false;
+  return routes.some(
+    (route) =>
+      route.targetType === MessagingRouteTargetType.CHANNEL &&
+      route.targetId === targetId,
+  );
+}
+
 export function isDirectMessageRoute(route: MessagingRouteLike | null) {
   return route?.targetType === MessagingRouteTargetType.DIRECT_MESSAGE;
 }
@@ -121,6 +147,12 @@ export function hasRuleNotificationRoute(
   destinations: MessagingChannelDestinations,
 ) {
   return destinations.ruleNotifications.enabled;
+}
+
+export function hasScheduledCheckInsRoute(
+  destinations: MessagingChannelDestinations,
+) {
+  return destinations.scheduledCheckIns.enabled;
 }
 
 export function canEnableMessagingFeatureRoute(

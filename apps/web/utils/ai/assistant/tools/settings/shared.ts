@@ -14,7 +14,6 @@ import { SUPPORTED_AUTOMATION_MESSAGING_PROVIDERS } from "@/utils/automation-job
 import {
   formatRouteTargetLabel,
   getMessagingRoute,
-  hasMessagingRoute,
 } from "@/utils/messaging/routes";
 import {
   getNextAutomationJobRunAt,
@@ -24,6 +23,7 @@ import {
   canEnableAutomationJobs,
   createAutomationJob,
 } from "@/utils/actions/automation-jobs.helpers";
+import { ensureScheduledCheckInsRouteForChannel } from "@/utils/automation-jobs/destination";
 
 const scheduledCheckInsConfigSchema = z
   .object({
@@ -41,7 +41,9 @@ const scheduledCheckInsConfigSchema = z
       .string()
       .cuid()
       .nullish()
-      .describe("Messaging channel ID to deliver scheduled check-ins to."),
+      .describe(
+        "Messaging channel ID to deliver scheduled check-ins to. Use an ID from assistant.scheduledCheckIns.availableChannels.",
+      ),
     prompt: z
       .string()
       .max(4000)
@@ -331,20 +333,18 @@ const accountSettingsSnapshotRawSelect = {
       provider: {
         in: SUPPORTED_AUTOMATION_MESSAGING_PROVIDERS,
       },
-      routes: {
-        some: {
-          purpose: MessagingRoutePurpose.RULE_NOTIFICATIONS,
-        },
-      },
       OR: [
         {
           provider: MessagingProvider.SLACK,
           accessToken: { not: null },
+          providerUserId: { not: null },
         },
         {
-          provider: {
-            in: [MessagingProvider.TEAMS, MessagingProvider.TELEGRAM],
-          },
+          provider: MessagingProvider.TEAMS,
+          providerUserId: { not: null },
+        },
+        {
+          provider: MessagingProvider.TELEGRAM,
         },
       ],
     },
@@ -998,6 +998,21 @@ async function applyScheduledCheckInsConfig({
 }) {
   const cronExpression = config.cronExpression ?? DEFAULT_AUTOMATION_JOB_CRON;
 
+  const messagingChannelId =
+    config.messagingChannelId ?? current.messagingChannelId;
+
+  if (current.jobId && config.enabled && messagingChannelId) {
+    const route = await ensureScheduledCheckInsRouteForChannel({
+      emailAccountId,
+      messagingChannelId,
+    });
+    if (!route) {
+      throw new Error(
+        "Selected messaging destination is unavailable. Refresh capabilities and choose another channel.",
+      );
+    }
+  }
+
   if (!current.jobId) {
     if (!config.enabled || !config.messagingChannelId) return;
 
@@ -1034,26 +1049,19 @@ async function applyScheduledCheckInsConfig({
 function buildScheduledCheckInsSnapshot(
   emailAccount: ScheduledCheckInsSnapshotSource,
 ) {
-  const availableChannels = emailAccount.messagingChannels
-    .filter((channel) =>
-      hasMessagingRoute(
-        channel.routes,
-        MessagingRoutePurpose.RULE_NOTIFICATIONS,
-      ),
-    )
-    .map((channel) => ({
-      id: channel.id,
-      label: formatMessagingChannelLabel({
-        provider: channel.provider,
-        teamName: channel.teamName,
-        routeLabel: formatRouteTargetLabel(
-          getMessagingRoute(
-            channel.routes,
-            MessagingRoutePurpose.RULE_NOTIFICATIONS,
-          ),
+  const availableChannels = emailAccount.messagingChannels.map((channel) => ({
+    id: channel.id,
+    label: formatMessagingChannelLabel({
+      provider: channel.provider,
+      teamName: channel.teamName,
+      routeLabel: formatRouteTargetLabel(
+        getMessagingRoute(
+          channel.routes,
+          MessagingRoutePurpose.SCHEDULED_CHECK_INS,
         ),
-      }),
-    }));
+      ),
+    }),
+  }));
 
   return {
     jobId: emailAccount.automationJob?.id ?? null,
@@ -1072,7 +1080,7 @@ function buildScheduledCheckInsSnapshot(
           routeLabel: formatRouteTargetLabel(
             getMessagingRoute(
               emailAccount.automationJob.messagingChannel.routes,
-              MessagingRoutePurpose.RULE_NOTIFICATIONS,
+              MessagingRoutePurpose.SCHEDULED_CHECK_INS,
             ),
           ),
         })
