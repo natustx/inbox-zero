@@ -14,10 +14,14 @@ import {
   saveAboutBody,
   saveSignatureBody,
   saveWritingStyleBody,
+  updateAIDraftCleanupSettingsBody,
 } from "@/utils/actions/user.validation";
 import { clearLastEmailAccountCookie } from "@/utils/cookies.server";
 import { aliasPosthogUser } from "@/utils/posthog";
-import { cleanupAIDraftsForAccount } from "@/utils/ai/draft-cleanup";
+import {
+  cleanupAIDraftsForAccount,
+  getConfiguredDraftCleanupDays,
+} from "@/utils/ai/draft-cleanup";
 import { isNotFoundError } from "@/utils/prisma-helpers";
 
 export const saveAboutAction = actionClient
@@ -79,9 +83,27 @@ export const deleteAccountAction = actionClientUser
 
 export const cleanupAIDraftsAction = actionClient
   .metadata({ name: "cleanupAIDrafts" })
-  .action(async ({ ctx: { emailAccountId, provider, logger } }) =>
-    cleanupAIDraftsForAccount({ emailAccountId, provider, logger }),
-  );
+  .action(async ({ ctx: { emailAccountId, provider, logger } }) => {
+    const cleanupDays = await getConfiguredDraftCleanupDays(emailAccountId);
+    return cleanupAIDraftsForAccount({
+      emailAccountId,
+      provider,
+      logger,
+      cleanupDays,
+    });
+  });
+
+export const updateAIDraftCleanupSettingsAction = actionClient
+  .metadata({ name: "updateAIDraftCleanupSettings" })
+  .inputSchema(updateAIDraftCleanupSettingsBody)
+  .action(async ({ parsedInput: { cleanupDays }, ctx: { emailAccountId } }) => {
+    await prisma.emailAccount.update({
+      where: { id: emailAccountId },
+      data: { draftCleanupDays: cleanupDays },
+    });
+
+    return { cleanupDays };
+  });
 
 export const deleteEmailAccountAction = actionClientUser
   .metadata({ name: "deleteEmailAccount" })
