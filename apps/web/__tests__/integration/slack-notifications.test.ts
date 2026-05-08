@@ -547,7 +547,7 @@ describe.skipIf(!RUN_INTEGRATION_TESTS)(
       expect(message).toBeDefined();
       expect(message?.text).toContain("I drafted a reply for you");
       expect(message?.text).toContain("*sender@example.com*");
-      expect(message?.text).toContain(`about "${subject}"`);
+      expect(message?.text).toContain(`*Subject:* ${subject}`);
       expect(message?.text).toContain("They wrote:");
       expect(message?.text).toContain("Can you help with this request?");
       expect(message?.text).toContain("I drafted a reply for you:");
@@ -907,9 +907,9 @@ describe.skipIf(!RUN_INTEGRATION_TESTS)(
       expect(getActionLabels(postArgs?.blocks)).toEqual([
         "Archive",
         "Mark read",
-        "More",
         "Open in Gmail",
         "Dismiss",
+        "More",
       ]);
     });
 

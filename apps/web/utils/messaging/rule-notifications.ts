@@ -1591,7 +1591,7 @@ function buildNotificationContent({
     const emailPreview = buildEmailPreview(email, { format });
     const draftPreview = buildDraftPreview(draftContent, { format });
 
-    const summary = `You got an email from *${senderDisplay}* about "${subject}".`;
+    const summary = `You got an email from *${senderDisplay}*.\n*Subject:* ${subject}`;
 
     const details: string[] = [];
     if (emailPreview) {
@@ -1696,6 +1696,12 @@ function buildNotificationCard({
               label: "Mark read",
               value: actionId,
             }),
+            ...(openLink ? [LinkButton(openLink)] : []),
+            Button({
+              id: RULE_DRAFT_DISMISS_ACTION_ID,
+              label: "Dismiss",
+              value: actionId,
+            }),
             Select({
               id: RULE_NOTIFY_MORE_ACTION_ID,
               label: "More",
@@ -1710,12 +1716,6 @@ function buildNotificationCard({
                   value: `${RULE_NOTIFY_MARK_SPAM_ACTION_ID}:${actionId}`,
                 }),
               ],
-            }),
-            ...(openLink ? [LinkButton(openLink)] : []),
-            Button({
-              id: RULE_DRAFT_DISMISS_ACTION_ID,
-              label: "Dismiss",
-              value: actionId,
             }),
           ],
     ),
