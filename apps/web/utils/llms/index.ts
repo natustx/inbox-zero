@@ -58,6 +58,10 @@ import {
   shouldForceNanoModel,
 } from "@/utils/llms/model-usage-guard";
 import { Provider } from "@/utils/llms/config";
+import {
+  appendOllamaOnlySystemGuidance,
+  OLLAMA_STRUCTURED_OUTPUT_GUIDANCE,
+} from "@/utils/llms/ollama-guidance";
 import { createScopedLogger } from "@/utils/logger";
 import { getPosthogLlmClient, isPosthogLlmEvalApproved } from "@/utils/posthog";
 import {
@@ -345,14 +349,18 @@ export function createGenerateObject({
         system: typeof options.system === "string" ? options.system : undefined,
         promptHardening,
       });
-      const protectedOptions = enforceSensitiveDataPolicy({
-        options: { ...options, system: systemText },
-        policy: emailAccount.sensitiveDataPolicy,
-        logger,
-        label,
-        userId: emailAccount.userId,
-        emailAccountId: emailAccount.id,
-      });
+      const protectedOptions = appendOllamaOnlySystemGuidance(
+        enforceSensitiveDataPolicy({
+          options: { ...options, system: systemText },
+          policy: emailAccount.sensitiveDataPolicy,
+          logger,
+          label,
+          userId: emailAccount.userId,
+          emailAccountId: emailAccount.id,
+        }),
+        candidate,
+        OLLAMA_STRUCTURED_OUTPUT_GUIDANCE,
+      );
 
       logger.trace("Generating object", {
         label,
