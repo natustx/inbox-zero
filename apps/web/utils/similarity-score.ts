@@ -1,5 +1,9 @@
 import * as stringSimilarity from "string-similarity";
-import { convertEmailHtmlToText, parseReply } from "@/utils/mail";
+import {
+  convertEmailHtmlToText,
+  parseReply,
+  stripForwardedContent,
+} from "@/utils/mail";
 import {
   stripQuotedContent,
   stripQuotedHtmlContent,
@@ -45,9 +49,10 @@ function normalizeForOutlook(content: string, stripSignature = false): string {
     includeLinks: false,
   });
   const withoutQuotedContent = stripQuotedContent(plainText);
+  const withoutForwardedContent = stripForwardedContent(withoutQuotedContent);
   const withoutSignature = stripSignature
-    ? stripPlainTextSignature(withoutQuotedContent)
-    : withoutQuotedContent;
+    ? stripPlainTextSignature(withoutForwardedContent)
+    : withoutForwardedContent;
   return withoutSignature.toLowerCase().trim();
 }
 
@@ -92,9 +97,10 @@ function normalizeForGmail(content: string, stripSignature = false): string {
   const reply = parseReply(plainText);
   const decoded = decodeHtmlEntities(reply);
   const withoutQuotedContent = stripQuotedContent(decoded);
+  const withoutForwardedContent = stripForwardedContent(withoutQuotedContent);
   const withoutSignature = stripSignature
-    ? stripPlainTextSignature(withoutQuotedContent)
-    : withoutQuotedContent;
+    ? stripPlainTextSignature(withoutForwardedContent)
+    : withoutForwardedContent;
   return withoutSignature.toLowerCase().trim();
 }
 

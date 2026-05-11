@@ -16,6 +16,7 @@ import { stripProviderSignatureFromParsedMessage } from "@/utils/email/signature
 import { replaceMessagingDraftNotificationsWithHandledOnWebState } from "@/utils/messaging/rule-notifications";
 import { emailToContentForAI } from "@/utils/ai/content-sanitizer";
 import { FIRST_TIME_EVENTS, trackFirstTimeEvent } from "@/utils/posthog";
+import { messageRepliesToSourceSender } from "@/utils/email";
 import { logReplyTrackerError } from "./error-logging";
 
 /**
@@ -60,6 +61,11 @@ export async function trackSentDraftStatus({
       content: true,
       draftId: true,
       executedRuleId: true,
+      executedRule: {
+        select: {
+          messageId: true,
+        },
+      },
     },
   });
 
@@ -68,25 +74,45 @@ export async function trackSentDraftStatus({
     return;
   }
 
-  const draftExists = await provider.getDraft(executedAction.draftId);
+  const [draftExists, sourceMessage] = await Promise.all([
+    provider.getDraft(executedAction.draftId),
+    provider
+      .getMessage(executedAction.executedRule.messageId)
+      .catch((error) => {
+        logger.warn("Failed to load source message for sent draft tracking", {
+          error,
+          executedActionId: executedAction.id,
+        });
+        return null;
+      }),
+  ]);
 
   const executedActionId = executedAction.id;
 
   // Calculate similarity between sent message and AI draft content
   // Pass full message to properly handle Outlook HTML content
   const similarityScore = calculateSimilarity(executedAction.content, message);
+  const sentMessageRepliesToSource =
+    sourceMessage &&
+    messageRepliesToSourceSender({
+      sentMessage: message,
+      sourceMessage,
+    });
 
   logger.info("Calculated similarity score", {
     executedActionId,
     similarityScore,
     draftExists: !!draftExists,
+    sentMessageRepliesToSource,
   });
 
-  if (draftExists) {
-    logger.info("Original AI draft still exists, sent message was different.", {
+  if (draftExists || sentMessageRepliesToSource === false) {
+    logger.info("Marking AI draft as not sent", {
       executedActionId: executedAction.id,
       draftId: executedAction.draftId,
       similarityScore,
+      draftExists: !!draftExists,
+      sentMessageRepliesToSource,
     });
 
     // Create DraftSendLog to record the comparison, but mark wasDraftSent as false
@@ -108,24 +134,26 @@ export async function trackSentDraftStatus({
       { logger },
     );
 
-    logger.info(
-      "Created draft send log and marked action as not sent (draft still exists)",
-      { executedActionId },
-    );
+    logger.info("Created draft send log and marked action as not sent", {
+      executedActionId,
+      sentMessageRepliesToSource,
+    });
     await replaceMessagingDraftNotificationsWithHandledOnWebState({
       executedRuleId: executedAction.executedRuleId,
       logger,
     });
-    queueReplyMemoryLearning({
-      emailAccountId,
-      executedActionId,
-      draftSendLogId: draftSendLog.id,
-      draftText: executedAction.content,
-      similarityScore,
-      message,
-      provider,
-      logger,
-    });
+    if (sentMessageRepliesToSource !== false) {
+      queueReplyMemoryLearning({
+        emailAccountId,
+        executedActionId,
+        draftSendLogId: draftSendLog.id,
+        draftText: executedAction.content,
+        similarityScore,
+        message,
+        provider,
+        logger,
+      });
+    }
     return;
   }
 
@@ -421,7 +449,7 @@ function queueReplyMemoryLearning({
     {
       maxLength: 4000,
       extractReply: true,
-      removeForwarded: false,
+      removeForwarded: true,
     },
   );
 
