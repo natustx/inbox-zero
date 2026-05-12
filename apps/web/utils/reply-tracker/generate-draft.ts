@@ -272,6 +272,22 @@ async function generateDraftContent(
         selectedAttachments: [],
         attachmentContext: null,
       });
+  const activeBookingLinksPromise = prisma.bookingLink.findMany({
+    where: { emailAccountId: emailAccount.id, isActive: true },
+    orderBy: { createdAt: "desc" },
+    take: 1,
+    select: { slug: true },
+  });
+  const calendarAvailabilityPromise = activeBookingLinksPromise.then(
+    (activeBookingLinks) =>
+      aiGetCalendarAvailability({
+        emailAccount,
+        messages,
+        logger,
+        bookingLinkAvailable:
+          activeBookingLinks.length > 0 || !!emailAccount.calendarBookingLink,
+      }),
+  );
   const [
     knowledgeResult,
     replyMemorySelection,
@@ -303,7 +319,7 @@ async function generateDraftContent(
       emailAccount,
       emailProvider,
     }),
-    aiGetCalendarAvailability({ emailAccount, messages, logger }),
+    calendarAvailabilityPromise,
     getWritingStyle({ emailAccountId: emailAccount.id }),
     prisma.emailAccount.findUnique({
       where: { id: emailAccount.id },
@@ -332,12 +348,7 @@ async function generateDraftContent(
         })
       : Promise.resolve(null),
     attachmentSelectionPromise,
-    prisma.bookingLink.findMany({
-      where: { emailAccountId: emailAccount.id, isActive: true },
-      orderBy: { createdAt: "desc" },
-      take: 1,
-      select: { slug: true },
-    }),
+    activeBookingLinksPromise,
     collectSenderReplyExamples({
       emailAccount,
       emailProvider,
