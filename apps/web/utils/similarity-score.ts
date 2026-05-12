@@ -115,6 +115,7 @@ function normalizeForGmail(content: string, stripSignature = false): string {
 export function calculateSimilarity(
   storedContent?: string | null,
   providerMessage?: string | ParsedMessage | null,
+  options: { excludedSignatures?: string[] } = {},
 ): number {
   if (!storedContent || !providerMessage) {
     return 0.0;
@@ -124,6 +125,7 @@ export function calculateSimilarity(
     storedContent,
     providerMessage,
     stripSignature: false,
+    excludedSignatures: options.excludedSignatures,
   });
   const baselineScore = compareNormalizedStrings(normalized1, normalized2);
 
@@ -131,6 +133,7 @@ export function calculateSimilarity(
     storedContent,
     providerMessage,
     stripSignature: true,
+    excludedSignatures: options.excludedSignatures,
   });
   const signatureStrippedScore = compareNormalizedStrings(
     signatureStripped1,
@@ -144,41 +147,55 @@ function normalizePair({
   storedContent,
   providerMessage,
   stripSignature,
+  excludedSignatures,
 }: {
   storedContent: string;
   providerMessage: string | ParsedMessage;
   stripSignature: boolean;
+  excludedSignatures?: string[];
 }): [string, string] {
   let normalizedStoredContent: string;
   let normalizedProviderMessage: string;
+  let normalizeContent: (content: string, stripSignature: boolean) => string;
 
   if (typeof providerMessage === "string") {
     // Legacy: plain string from before ParsedMessage was threaded through callers
-    normalizedStoredContent = normalizeForGmail(storedContent, stripSignature);
-    normalizedProviderMessage = normalizeForGmail(
+    normalizeContent = normalizeForGmail;
+    normalizedStoredContent = normalizeContent(storedContent, stripSignature);
+    normalizedProviderMessage = normalizeContent(
       providerMessage,
       stripSignature,
     );
   } else {
     const isOutlook = providerMessage.bodyContentType === "html";
     const text = providerMessage.textHtml || providerMessage.textPlain || "";
+    normalizeContent = isOutlook ? normalizeForOutlook : normalizeForGmail;
 
-    if (isOutlook) {
-      normalizedStoredContent = normalizeForOutlook(
-        storedContent,
-        stripSignature,
-      );
-      normalizedProviderMessage = normalizeForOutlook(text, stripSignature);
-    } else {
-      normalizedStoredContent = normalizeForGmail(
-        storedContent,
-        stripSignature,
-      );
-      normalizedProviderMessage = normalizeForGmail(text, stripSignature);
-    }
+    normalizedStoredContent = normalizeContent(storedContent, stripSignature);
+    normalizedProviderMessage = normalizeContent(text, stripSignature);
   }
 
-  return [normalizedStoredContent, normalizedProviderMessage];
+  // Normalize excluded signatures with stripSignature=false so the signature
+  // strippers don't reduce the user's saved signature to empty before we use
+  // it to remove that signature from the body.
+  const normalizedExcludedSignatures = excludedSignatures
+    ?.map((signature) => normalizeContent(signature, false))
+    .filter(Boolean);
+
+  if (!normalizedExcludedSignatures?.length) {
+    return [normalizedStoredContent, normalizedProviderMessage];
+  }
+
+  return [
+    removeExcludedSignatures(
+      normalizedStoredContent,
+      normalizedExcludedSignatures,
+    ),
+    removeExcludedSignatures(
+      normalizedProviderMessage,
+      normalizedExcludedSignatures,
+    ),
+  ];
 }
 
 function compareNormalizedStrings(normalized1: string, normalized2: string) {
@@ -187,6 +204,19 @@ function compareNormalizedStrings(normalized1: string, normalized2: string) {
   }
 
   return stringSimilarity.compareTwoStrings(normalized1, normalized2);
+}
+
+function removeExcludedSignatures(
+  content: string,
+  excludedSignatures: string[],
+): string {
+  let result = content;
+
+  for (const signature of excludedSignatures) {
+    result = result.replaceAll(signature, "");
+  }
+
+  return result.replace(/\n{3,}/g, "\n\n").trim();
 }
 
 function looksLikeHtmlContent(content: string): boolean {
